@@ -1,6 +1,8 @@
+require('dotenv').config();
 const express = require('express');
 const app = express();
 const port = 3000;
+const aiClient = require('./utils/ai');
 
 const authRoutes = require('./routes/auth');
 const accountRoutes = require('./routes/account');

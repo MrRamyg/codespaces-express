@@ -1,49 +1,46 @@
 const express = require('express');
 const router = express.Router();
+const { Pool } = require('pg');
+require('dotenv').config();
 const { optionalAuth } = require('../middleware/auth');
 
-router.get('/', optionalAuth, (req, res) => {
-  res.json([
-    {
-      id: 1,
-      title: 'Welcome Bonus',
-      description: 'Get 20% off your first purchase',
-      code: 'WELCOME20',
-      type: 'percentage',
-      discountValue: 20
-    },
-    {
-      id: 2,
-      title: 'Holiday Special',
-      description: '$10 off orders over $50',
-      code: 'HOLIDAY10',
-      type: 'fixed',
-      discountValue: 10
-    },
-    {
-      id: 3,
-      title: 'Bot Hosting Promo',
-      description: '3 months for the price of 2',
-      code: 'BOT3FOR2',
-      type: 'custom',
-      discountValue: 33.33
-    }
-  ]);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL, 
+  ssl: { rejectUnauthorized: false }
 });
 
-router.post('/validate', (req, res) => {
+// GET /promotions
+router.get('/', optionalAuth, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM promotions;');
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// POST /promotions/validate
+router.post('/validate', async (req, res) => {
   const { code, cartItems } = req.body;
 
-  const validCodes = {
-    'WELCOME20': { valid: true, discountAmount: 20, description: '20% off applied' },
-    'HOLIDAY10': { valid: true, discountAmount: 10, description: '$10 off applied' },
-    'BOT3FOR2': { valid: true, discountAmount: 33.33, description: '33% discount applied' }
-  };
+  try {
+    const result = await pool.query('SELECT * FROM promotions WHERE code=$1', [code]);
+    if (result.rows.length === 0) {
+      return res.json({ valid: false, discountAmount: 0, description: 'Invalid promo code' });
+    }
 
-  if (validCodes[code]) {
-    res.json(validCodes[code]);
-  } else {
-    res.json({ valid: false, discountAmount: 0, description: 'Invalid promo code' });
+    const promo = result.rows[0];
+    const discountAmount = promo.discountvalue; 
+
+    res.json({
+      valid: true,
+      discountAmount,
+      description: `${discountAmount}${promo.type === 'percentage' ? '%' : '$'} discount applied`
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
   }
 });
 
