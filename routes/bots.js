@@ -1,134 +1,107 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
+const pool = require('../db'); // PostgreSQL pool, see note below
 
-router.get('/plans', optionalAuth, (req, res) => {
-  res.json([
-    {
-      id: 'basic',
-      name: 'Basic',
-      priceMonthly: 9.99,
+// GET /plans
+router.get('/plans', optionalAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM plans ORDER BY name');
+    res.json(rows.map(plan => ({
+      id: plan.id,
+      name: plan.name,
+      priceMonthly: Number(plan.price_monthly),
       specs: {
-        ram: '1GB',
-        cpu: '1 vCore',
-        disk: '10GB SSD'
+        ram: plan.ram,
+        cpu: plan.cpu,
+        disk: plan.disk
       },
-      features: ['24/7 Uptime', 'Basic Support', '1 Bot Instance']
-    },
-    {
-      id: 'premium',
-      name: 'Premium',
-      priceMonthly: 24.99,
-      specs: {
-        ram: '4GB',
-        cpu: '2 vCores',
-        disk: '50GB SSD'
-      },
-      features: ['24/7 Uptime', 'Priority Support', '5 Bot Instances', 'Auto Backups']
-    },
-    {
-      id: 'pro',
-      name: 'Pro',
-      priceMonthly: 49.99,
-      specs: {
-        ram: '8GB',
-        cpu: '4 vCores',
-        disk: '100GB SSD'
-      },
-      features: ['24/7 Uptime', 'Dedicated Support', 'Unlimited Instances', 'Auto Backups', 'DDoS Protection']
-    }
-  ]);
+      features: plan.features
+    })));
+  } catch (err) {
+    console.error('Failed to fetch plans:', err);
+    res.status(500).json({ error: 'Failed to fetch plans' });
+  }
 });
 
-router.get('/nodes', (req, res) => {
-  res.json([
-    {
-      id: 1,
-      name: 'US-East-1',
-      country: 'United States',
-      region: 'Virginia',
-      status: 'online',
-      load: 45
-    },
-    {
-      id: 2,
-      name: 'US-West-1',
-      country: 'United States',
-      region: 'California',
-      status: 'online',
-      load: 62
-    },
-    {
-      id: 3,
-      name: 'EU-Central-1',
-      country: 'Germany',
-      region: 'Frankfurt',
-      status: 'online',
-      load: 38
-    },
-    {
-      id: 4,
-      name: 'ASIA-1',
-      country: 'Singapore',
-      region: 'Singapore',
-      status: 'maintenance',
-      load: 0
-    }
-  ]);
+// GET /nodes
+router.get('/nodes', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM nodes ORDER BY name');
+    res.json(rows);
+  } catch (err) {
+    console.error('Failed to fetch nodes:', err);
+    res.status(500).json({ error: 'Failed to fetch nodes' });
+  }
 });
 
 router.use(authenticateToken);
 
-router.get('/instances', (req, res) => {
-  res.json([
-    {
-      id: 'inst_1',
-      name: 'Discord Bot - Main',
-      status: 'running',
-      ip: '192.0.2.10',
-      port: 25565,
-      plan: 'Premium',
-      region: 'US-East-1'
-    },
-    {
-      id: 'inst_2',
-      name: 'Telegram Bot',
-      status: 'stopped',
-      ip: '192.0.2.11',
-      port: 25566,
-      plan: 'Basic',
-      region: 'EU-Central-1'
-    }
-  ]);
+// GET /instances
+router.get('/instances', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT i.id, i.name, i.status, i.ip, i.port, p.name AS plan, n.name AS region
+       FROM instances i
+       LEFT JOIN plans p ON i.plan_id = p.id
+       LEFT JOIN nodes n ON i.node_id = n.id
+       WHERE i.user_id = $1`,
+      [req.user.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Failed to fetch instances:', err);
+    res.status(500).json({ error: 'Failed to fetch instances' });
+  }
 });
 
-router.get('/instances/:id', (req, res) => {
-  const { id } = req.params;
+// GET /instances/:id
+router.get('/instances/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      `SELECT i.*, p.name AS plan_name, n.name AS region
+       FROM instances i
+       LEFT JOIN plans p ON i.plan_id = p.id
+       LEFT JOIN nodes n ON i.node_id = n.id
+       WHERE i.id = $1 AND i.user_id = $2`,
+      [id, req.user.id]
+    );
 
-  res.json({
-    id,
-    name: 'Discord Bot - Main',
-    status: 'running',
-    credentials: {
-      panelUrl: 'https://panel.example.com',
-      username: 'user_12345',
-      password: 'temp_password_xyz'
-    },
-    stats: {
-      cpu: 25,
-      ram: 1024,
-      disk: 2048,
-      uptime: '15d 6h 23m'
-    },
-    ip: '192.0.2.10',
-    port: 25565
-  });
+    if (!rows[0]) return res.status(404).json({ error: 'Instance not found' });
+
+    const inst = rows[0];
+    res.json({
+      id: inst.id,
+      name: inst.name,
+      status: inst.status,
+      credentials: {
+        panelUrl: 'https://panel.example.com',
+        username: req.user.email,
+        password: '*****'
+      },
+      stats: {
+        cpu: inst.cpu_usage,
+        ram: inst.ram_usage,
+        disk: inst.disk_usage,
+        uptime: inst.uptime
+      },
+      ip: inst.ip,
+      port: inst.port,
+      plan: inst.plan_name,
+      region: inst.region
+    });
+  } catch (err) {
+    console.error('Failed to fetch instance:', err);
+    res.status(500).json({ error: 'Failed to fetch instance' });
+  }
 });
 
-router.post('/instances/:id/power', (req, res) => {
+// POST /instances/:id/power
+router.post('/instances/:id/power', async (req, res) => {
   const { id } = req.params;
   const { action } = req.body;
-
+  // TODO: Hook into your provisioning or VM manager
   res.json({
     message: `Instance ${action} command sent successfully`,
     instanceId: id,
@@ -137,15 +110,32 @@ router.post('/instances/:id/power', (req, res) => {
   });
 });
 
-router.post('/deploy', (req, res) => {
-  const { orderId, planId, region, image, gitConfig } = req.body;
+// POST /deploy
+router.post('/deploy', async (req, res) => {
+  try {
+    const { orderId, planId, region, image, gitConfig } = req.body;
 
-  res.json({
-    instanceId: `inst_${Date.now()}`,
-    status: 'provisioning',
-    message: 'Bot instance is being deployed',
-    estimatedTime: '2-5 minutes'
-  });
+    // Insert deployment record
+    const { rows } = await pool.query(
+      `INSERT INTO deployments(user_id, plan_id, region, image, git_config, status, estimated_time)
+       VALUES($1, $2, $3, $4, $5, 'provisioning', '2-5 minutes') RETURNING id`,
+      [req.user.id, planId, region, image, gitConfig || {}]
+    );
+
+    const deploymentId = rows[0].id;
+
+    // TODO: Trigger async provisioning, then update instances table
+
+    res.json({
+      instanceId: deploymentId,
+      status: 'provisioning',
+      message: 'Bot instance is being deployed',
+      estimatedTime: '2-5 minutes'
+    });
+  } catch (err) {
+    console.error('Failed to deploy instance:', err);
+    res.status(500).json({ error: 'Failed to deploy instance' });
+  }
 });
 
 module.exports = router;
