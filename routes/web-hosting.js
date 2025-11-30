@@ -1,111 +1,93 @@
 const express = require('express');
 const router = express.Router();
-const { authenticateToken } = require('../middleware/auth');
+const { 
+  getFullAccountInfo, 
+  createAccount, 
+  suspendAccount, 
+  unsuspendAccount,
+  checkDomainAvailability 
+} = require('../services/mofhClient');
 
-router.use(authenticateToken);
 
-router.get('/accounts', (req, res) => {
-  res.json([
-    {
-      id: 'wh_1',
-      domain: 'mysite.example.com',
-      username: 'user_12345',
-      status: 'active',
-      plan: 'premium'
-    },
-    {
-      id: 'wh_2',
-      domain: 'testsite.rf.gd',
-      username: 'user_67890',
-      status: 'active',
-      plan: 'free'
+router.get('/full-account', async (req, res) => {
+  const { vpusername } = req.query;
+  if (!vpusername) return res.status(400).json({ error: 'vpusername required' });
+
+  try {
+    const account = await getFullAccountInfo(vpusername);
+    return res.json({ source: 'mofh', account });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch full account info', details: err.message });
+  }
+});
+
+router.post('/accounts/create', async (req, res) => {
+  try {
+    const { domain, password, plan, username, contactemail } = req.body;
+    if (!domain || !password || !username || !contactemail) {
+      return res.status(400).json({ error: 'username, password, contactemail and domain required' });
     }
-  ]);
+
+    const result = await createAccount({ username, password, email: contactemail, domain, plan });
+    return res.status(201).json(result);
+  } catch (err) {
+    console.error('POST /accounts/create error', err);
+    res.status(500).json({ error: 'Failed to create account', details: err.message || err });
+  }
 });
 
-router.post('/accounts', (req, res) => {
-  const { domain, password, plan } = req.body;
+// Suspend
+router.post('/accounts/:vpusername/suspend', async (req, res) => {
+  try {
+    const { vpusername } = req.params;
+    const { reason } = req.body;
+    if (!vpusername) return res.status(400).json({ error: 'vpusername required' });
 
-  res.status(201).json({
-    id: `wh_${Date.now()}`,
-    username: `user_${Date.now()}`,
-    status: 'provisioning',
-    domain,
-    plan,
-    message: 'Account is being created. This may take a few minutes.'
-  });
+    const result = await suspendAccount(vpusername, reason);
+    return res.json({ source: 'mofh', action: 'suspend', result });
+  } catch (err) {
+    console.error('Suspend error', err);
+    return res.status(500).json({ error: 'Failed to suspend account', details: err.message });
+  }
 });
 
-router.get('/accounts/:id', (req, res) => {
-  const { id } = req.params;
+// Unsuspend
+router.post('/accounts/:vpusername/unsuspend', async (req, res) => {
+  try {
+    const { vpusername } = req.params;
+    if (!vpusername) return res.status(400).json({ error: 'vpusername required' });
 
-  res.json({
-    id,
-    domain: 'mysite.example.com',
-    username: 'user_12345',
-    status: 'active',
-    plan: 'premium',
-    ftpDetails: {
-      host: 'ftp.example.com',
-      port: 21,
-      username: 'user_12345',
-      homeDirectory: '/htdocs'
-    },
-    mysqlDetails: {
-      host: 'mysql.example.com',
-      port: 3306,
-      databases: [
-        { name: 'user_12345_db1', username: 'user_12345' }
-      ]
-    },
-    stats: {
-      diskUsed: '500MB',
-      diskLimit: '10GB',
-      bandwidth: '2GB',
-      bandwidthLimit: '100GB'
-    }
-  });
+    const result = await unsuspendAccount(vpusername);
+    return res.json({ source: 'mofh', action: 'unsuspend', result });
+  } catch (err) {
+    console.error('Unsuspend error', err);
+    return res.status(500).json({ error: 'Failed to unsuspend account', details: err.message });
+  }
 });
 
-router.post('/accounts/:id/deactivate', (req, res) => {
-  const { id } = req.params;
+router.get('/accounts/check-domain', async (req, res) => {
+  try {
+    const { domain } = req.query;
+    if (!domain) return res.status(400).json({ error: 'domain required' });
 
-  res.json({
-    message: 'Account deactivated successfully',
-    accountId: id,
-    status: 'inactive'
-  });
+    const available = await checkDomainAvailability(domain);
+    return res.json({ domain, available });
+  } catch (err) {
+    console.error('Domain check error', err);
+    return res.status(500).json({ error: 'Failed to check domain', details: err.message });
+  }
 });
 
-router.get('/ssl', (req, res) => {
-  res.json([
-    {
-      id: 'ssl_1',
-      domain: 'mysite.example.com',
-      status: 'active',
-      provider: 'Let\'s Encrypt',
-      expiresAt: '2025-03-28'
-    },
-    {
-      id: 'ssl_2',
-      domain: 'www.mysite.example.com',
-      status: 'active',
-      provider: 'Let\'s Encrypt',
-      expiresAt: '2025-03-28'
-    }
-  ]);
-});
+router.get('/accounts/domains', async (req, res) => {
+  const { vpusername } = req.query;
+  if (!vpusername) return res.status(400).json({ error: 'vpusername required' });
 
-router.post('/ssl', (req, res) => {
-  const { domain, provider } = req.body;
-
-  res.status(201).json({
-    id: `ssl_${Date.now()}`,
-    domain,
-    status: 'provisioning',
-    provider: provider || 'Let\'s Encrypt',
-    message: 'SSL certificate is being issued'
-  });
+  try {
+    const domains = await mofh.getUserDomainsXML(vpusername);
+    res.json({ source: 'mofh', domains });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch domains', details: err.message });
+  }
 });
 
 module.exports = router;

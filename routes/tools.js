@@ -4,7 +4,6 @@ require('dotenv').config();
 const { GoogleGenAI } = require('@google/genai');
 const tls = require('tls');
 const moment = require('moment'); 
-const whois = require('whois-json');
 const dns = require('dns').promises;
 
 const aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_KEY });
