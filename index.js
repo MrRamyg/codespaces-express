@@ -9,7 +9,6 @@ const port = process.env.PORT || 3000;
 
 // --- MIDDLEWARE ---
 
-// JSON parsing
 app.use(express.json());
 
 // CORS (adjust origin in production)
@@ -47,7 +46,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// Load route modules
+// --- IMPORT ROUTES ---
 const accountRoutes = require('./routes/account');
 const billingRoutes = require('./routes/billing');
 const promotionsRoutes = require('./routes/promotions');
@@ -57,16 +56,16 @@ const webHostingRoutes = require('./routes/web-hosting');
 const toolsRoutes = require('./routes/tools');
 const vpTestRoutes = require('./routes/vpTest');
 
-// Public routes (optional auth)
+// --- PUBLIC ROUTES (OPTIONAL AUTH) ---
 app.use('/api/v1/vp-test', optionalAuth, vpTestRoutes);
 
-// Protected API routes
+// --- PROTECTED ROUTES (AUTH REQUIRED) ---
 app.use('/api/v1/account', authenticateToken, accountRoutes);
 app.use('/api/v1/billing', authenticateToken, billingRoutes);
 app.use('/api/v1/promotions', authenticateToken, promotionsRoutes);
 app.use('/api/v1/domains', authenticateToken, domainsRoutes);
 app.use('/api/v1/bots', authenticateToken, botsRoutes);
-app.use('/api/v1/whm', authenticateToken, webHostingRoutes);
+app.use('/api/v1/web-hosting', authenticateToken, webHostingRoutes);
 app.use('/api/v1/tools', authenticateToken, toolsRoutes);
 app.use('/api/v1/vp-info', authenticateToken, vpTestRoutes);
 
